@@ -1,6 +1,6 @@
 # TERA pocket database
 
-![tumbnail](imgs/tumb.jpg)
+![tumbnail](imgs/tumb.png)
 
 A version-agnostic portable item database for TERA online.
 
