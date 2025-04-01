@@ -5,6 +5,7 @@
         private System.ComponentModel.IContainer components = null;
         private System.Windows.Forms.MenuStrip menuStrip1;
         private System.Windows.Forms.ToolStripMenuItem themeToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem databaseToolStripMenuItem;
         private System.Windows.Forms.Label statusLabel;
 
         protected override void Dispose(bool disposing)
@@ -80,7 +81,7 @@
             // columnHeader2
             // 
             columnHeader2.Text = "Name";
-            columnHeader2.Width = 200;
+            columnHeader2.Width = 350;
             // 
             // columnHeader3
             // 

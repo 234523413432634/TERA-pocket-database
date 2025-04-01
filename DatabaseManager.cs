@@ -1,21 +1,49 @@
 ﻿using System.Data.SQLite;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
+
 
 namespace MMOItemKnowledgeBase
 {
     public class DatabaseManager : IDisposable
     {
-        private const string DatabaseFile = "ItemDatabase.sqlite";
         private const string IconsFolderPath = "icons";
         private SQLiteConnection dbConnection;
-        
+        private string currentDatabasePath;
+        private string currentDatabaseFolder => Path.GetDirectoryName(currentDatabasePath);
+
         public Dictionary<string, List<string>> CategoryGroups { get; } = new Dictionary<string, List<string>>();
 
-        public void InitializeDatabase()
+        public static List<(string Name, string Path)> GetAvailableDatabases()
         {
-            bool createNew = !File.Exists(DatabaseFile);
-            dbConnection = new SQLiteConnection($"Data Source={DatabaseFile};Version=3;");
+            var databases = new List<(string, string)>();
+
+            // Look for folders starting with "X. Name" pattern
+            foreach (var dir in Directory.GetDirectories(Directory.GetCurrentDirectory()))
+            {
+                var dirName = Path.GetFileName(dir);
+                var match = Regex.Match(dirName, @"^\d+\.\s*(.+)$");
+                if (match.Success)
+                {
+                    string dbName = match.Groups[1].Value;
+                    string dbPath = Path.Combine(dir, "ItemDatabase.sqlite");
+                    databases.Add((dbName, dbPath));
+                }
+            }
+
+            return databases;
+        }
+        public void InitializeDatabase(string databasePath)
+        {
+            currentDatabasePath = databasePath;
+            bool createNew = !File.Exists(databasePath);
+
+            // Close existing connection if any
+            dbConnection?.Close();
+            dbConnection?.Dispose();
+
+            dbConnection = new SQLiteConnection($"Data Source={databasePath};Version=3;");
             dbConnection.Open();
 
             if (createNew)
@@ -34,13 +62,13 @@ namespace MMOItemKnowledgeBase
             }
         }
 
-    public async Task<SearchResult> SearchItemsAsync(string searchText, bool isNumeric, int searchId, 
-        List<string> selectedCategories, CancellationToken cancellationToken)
-    {
-        var result = new SearchResult();
-        var items = new List<ItemInfo>();
+        public async Task<SearchResult> SearchItemsAsync(string searchText, bool isNumeric, int searchId,
+            List<string> selectedCategories, CancellationToken cancellationToken)
+        {
+            var result = new SearchResult();
+            var items = new List<ItemInfo>();
 
-        string query = @"
+            string query = @"
             SELECT i.Id, i.Icon, i.Level, l.Name, l.Tooltip, i.LinkEquipmentId,
                    e.Balance, e.Defense, e.Impact, e.MaxAttack, i.RareGrade
             FROM Items i
@@ -49,89 +77,89 @@ namespace MMOItemKnowledgeBase
             WHERE ((@isNumeric = 1 AND i.Id = @searchId) OR
                   (@isNumeric = 0 AND l.Name COLLATE NOCASE LIKE @searchText))";
 
-        if (selectedCategories.Count > 0)
-        {
-            query += " AND i.Category IN (" + string.Join(",", selectedCategories.Select(c => $"'{c}'")) + ")";
-        }
-
-        bool shouldLimitResults = string.IsNullOrEmpty(searchText) && selectedCategories.Count == 0;
-        if (shouldLimitResults)
-        {
-            query += " ORDER BY i.Id LIMIT 500";
-            result.IsLimited = true;
-        }
-        else
-        {
-            query += " ORDER BY i.Id";
-        }
-
-        await Task.Run(() =>
-        {
-            using (var cmd = new SQLiteCommand(query, dbConnection))
+            if (selectedCategories.Count > 0)
             {
-                cmd.Parameters.AddWithValue("@isNumeric", isNumeric ? 1 : 0);
-                cmd.Parameters.AddWithValue("@searchId", searchId);
-                cmd.Parameters.AddWithValue("@searchText", $"%{searchText}%");
-
-                using (var reader = cmd.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        if (cancellationToken.IsCancellationRequested)
-                            return;
-
-                        var item = new ItemInfo
-                        {
-                            Id = reader.GetInt32(0),
-                            Icon = reader.GetString(1),
-                            Level = reader.GetInt32(2),
-                            Name = reader.GetString(3),
-                            Tooltip = reader.GetString(4),
-                            LinkEquipmentId = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-                            RareGrade = reader.GetInt32(10)
-                        };
-
-                        if (!reader.IsDBNull(6))
-                        {
-                            item.HasEquipmentStats = true;
-                            item.Balance = reader.GetString(6);
-                            item.Defense = reader.GetInt32(7);
-                            item.Impact = reader.GetString(8);
-                            item.MaxAttack = reader.GetInt32(9);
-                        }
-
-                        items.Add(item);
-                    }
-                }
+                query += " AND i.Category IN (" + string.Join(",", selectedCategories.Select(c => $"'{c}'")) + ")";
             }
-        }, cancellationToken);
 
-        // Load icons in parallel with throttling
-        var options = new ParallelOptions
-        {
-            CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = Environment.ProcessorCount
-        };
-
-        await Task.Run(() =>
-        {
-            Parallel.ForEach(items, options, item =>
+            bool shouldLimitResults = string.IsNullOrEmpty(searchText) && selectedCategories.Count == 0;
+            if (shouldLimitResults)
             {
-                try
+                query += " ORDER BY i.Id LIMIT 500";
+                result.IsLimited = true;
+            }
+            else
+            {
+                query += " ORDER BY i.Id";
+            }
+
+            await Task.Run(() =>
+            {
+                using (var cmd = new SQLiteCommand(query, dbConnection))
                 {
-                    string iconPath = Path.Combine(IconsFolderPath, item.Icon.Replace('.', '\\') + ".png");
-                    if (File.Exists(iconPath))
+                    cmd.Parameters.AddWithValue("@isNumeric", isNumeric ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@searchId", searchId);
+                    cmd.Parameters.AddWithValue("@searchText", $"%{searchText}%");
+
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        item.IconImage = Image.FromFile(iconPath);
+                        while (reader.Read())
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                                return;
+
+                            var item = new ItemInfo
+                            {
+                                Id = reader.GetInt32(0),
+                                Icon = reader.GetString(1),
+                                Level = reader.GetInt32(2),
+                                Name = reader.GetString(3),
+                                Tooltip = reader.GetString(4),
+                                LinkEquipmentId = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                                RareGrade = reader.GetInt32(10)
+                            };
+
+                            if (!reader.IsDBNull(6))
+                            {
+                                item.HasEquipmentStats = true;
+                                item.Balance = reader.GetString(6);
+                                item.Defense = reader.GetInt32(7);
+                                item.Impact = reader.GetString(8);
+                                item.MaxAttack = reader.GetInt32(9);
+                            }
+
+                            items.Add(item);
+                        }
                     }
                 }
-                catch { /* Ignore icon loading errors */ }
-            });
-        }, cancellationToken);
+            }, cancellationToken);
 
-        result.Items = items;
-        return result;
-    }
+            // Load icons in parallel with throttling
+            var options = new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = Environment.ProcessorCount
+            };
+
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(items, options, item =>
+                {
+                    try
+                    {
+                        string iconPath = Path.Combine(IconsFolderPath, item.Icon.Replace('.', '\\') + ".png");
+                        if (File.Exists(iconPath))
+                        {
+                            item.IconImage = Image.FromFile(iconPath);
+                        }
+                    }
+                    catch { /* Ignore icon loading errors */ }
+                });
+            }, cancellationToken);
+
+            result.Items = items;
+            return result;
+        }
 
         private void CreateDatabaseTables()
         {
@@ -177,9 +205,12 @@ namespace MMOItemKnowledgeBase
 
         private void LoadEquipmentData()
         {
-            string equipmentDataFile = Path.Combine("EquipmentData/EquipmentData-00000.xml");
-            if (!File.Exists(equipmentDataFile)) return;
-
+            string equipmentDataFile = Path.Combine(currentDatabaseFolder, "EquipmentData", "EquipmentData-00000.xml");
+            if (!File.Exists(equipmentDataFile))
+            {
+                MessageBox.Show($"Equipment data file not found at: {equipmentDataFile}");
+                return;
+            }
             try
             {
                 XDocument doc = XDocument.Load(equipmentDataFile);
@@ -236,7 +267,13 @@ namespace MMOItemKnowledgeBase
 
         private void LoadItemData()
         {
-            string[] itemDataFiles = Directory.GetFiles("ItemData", "ItemData-*.xml");
+            string itemDataFolder = Path.Combine(currentDatabaseFolder, "ItemData");
+            string[] itemDataFiles = Directory.GetFiles(itemDataFolder, "ItemData-*.xml");
+            if (itemDataFiles.Length == 0)
+            {
+                MessageBox.Show($"No ItemData XML files found in: {itemDataFolder}");
+                return;
+            }
             using (var transaction = dbConnection.BeginTransaction())
             using (var cmd = new SQLiteCommand(
                 "INSERT INTO Items (Id, NameKey, Icon, Level, LinkEquipmentId, Category, RareGrade) " +
@@ -300,7 +337,13 @@ namespace MMOItemKnowledgeBase
 
         private void LoadLocalizationData()
         {
-            string[] localizationFiles = Directory.GetFiles("StrSheet_Item", "StrSheet_Item-*.xml");
+            string localizationFolder = Path.Combine(currentDatabaseFolder, "StrSheet_Item");
+            string[] localizationFiles = Directory.GetFiles(localizationFolder, "StrSheet_Item-*.xml");
+            if (localizationFiles.Length == 0)
+            {
+                MessageBox.Show($"No localization XML files found in: {localizationFolder}");
+                return;
+            }
             using (var transaction = dbConnection.BeginTransaction())
             using (var cmd = new SQLiteCommand(
                 "INSERT INTO LocalizedItems (Id, Name, Tooltip) VALUES (@id, @name, @tooltip)",

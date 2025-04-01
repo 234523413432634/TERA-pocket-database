@@ -1,5 +1,5 @@
 ﻿using System.Runtime.InteropServices;
-using System.Windows.Forms;
+
 
 namespace MMOItemKnowledgeBase
 {
@@ -104,6 +104,19 @@ namespace MMOItemKnowledgeBase
 
             mainForm.Refresh();
         }
+        public void ApplyDarkThemeToComboBox(ComboBox comboBox)
+        {
+            comboBox.BackColor = darkTextBoxBackColor;
+            comboBox.ForeColor = darkTextBoxForeColor;
+            comboBox.FlatStyle = FlatStyle.Flat;
+        }
+
+        public void ApplyLightThemeToComboBox(ComboBox comboBox)
+        {
+            comboBox.BackColor = SystemColors.Window;
+            comboBox.ForeColor = SystemColors.WindowText;
+            comboBox.FlatStyle = FlatStyle.Standard;
+        }
 
         private void ApplyDarkTheme(Control control)
         {
@@ -152,6 +165,10 @@ namespace MMOItemKnowledgeBase
                 rtb.BackColor = darkTextBoxBackColor;
                 rtb.ForeColor = darkTextBoxForeColor;
                 rtb.BorderStyle = BorderStyle.FixedSingle;
+            }
+            else if (control is ComboBox comboBox)
+            {
+                ApplyDarkThemeToComboBox(comboBox);
             }
             // Apply to all child controls
             foreach (Control child in control.Controls)
@@ -207,6 +224,10 @@ namespace MMOItemKnowledgeBase
                 rtb.BackColor = SystemColors.Window;
                 rtb.ForeColor = SystemColors.WindowText;
                 rtb.BorderStyle = BorderStyle.Fixed3D;
+            }
+            else if (control is ComboBox comboBox)
+            {
+                ApplyLightThemeToComboBox(comboBox);
             }
 
             // Apply to all child controls
